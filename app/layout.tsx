@@ -1,4 +1,6 @@
-  export const metadata = {
+  import "./globals.css";
+
+export const metadata = {
   title: "Jain's Got Latent",
   description: "Live event voting platform",
 };

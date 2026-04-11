@@ -12,27 +12,35 @@ export default function Team({ params }: { params: { code: string } }) {
     if (info) setTeamInfo(JSON.parse(info));
 
     const fetchAll = async () => {
-      const gRes = await fetch('/api/game-state');
+      const gRes = await fetch(`/api/game-state?t=${Date.now()}`, { cache: 'no-store' });
       if (gRes.ok) setGameState(await gRes.json());
-      const sRes = await fetch('/api/scores');
+      const sRes = await fetch(`/api/scores?t=${Date.now()}`, { cache: 'no-store' });
       if (sRes.ok) setScores(await sRes.json());
     };
 
     fetchAll();
+    
+    // FAILSAFE POLLING: Bypasses the need for Supabase Realtime toggles by manually pulling data every 2s
+    const pollInterval = setInterval(() => {
+      fetchAll();
+    }, 2000);
 
     const channel = supabase
       .channel('jgl-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_state' }, (payload) => {
-        setGameState(payload.new);
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'game_state' }, () => {
+        fetchAll();
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'scores' }, (payload) => {
-        setScores((prev) => prev.map(s => s.id === payload.new.team_id ? { ...s, ...payload.new } : s));
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'scores' }, () => {
+        fetchAll();
       })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') fetchAll();
       });
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { 
+      clearInterval(pollInterval);
+      supabase.removeChannel(channel); 
+    };
   }, []);
 
   const handleVote = async () => {
@@ -94,7 +102,7 @@ export default function Team({ params }: { params: { code: string } }) {
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl">
              <h3 className="text-gray-400 font-bold uppercase tracking-wider text-xs mb-2">Stage Status</h3>
              {gameState?.current_team_id ? (
-                <div className="text-xl font-medium text-white">Team ID <span className="font-bold text-2xl text-emerald-400">{gameState.current_team_id}</span> is performing</div>
+                <div className="text-xl font-medium text-white">Team <span className="font-bold text-2xl text-emerald-400">{gameState.current_team_name || gameState.current_team_id}</span> is performing</div>
              ) : (
                 <div className="text-xl font-medium text-gray-500">Stage is empty</div>
              )}
