@@ -15,9 +15,6 @@ export default function Home() {
           <Link href="/login" className="w-full bg-emerald-600 hover:bg-emerald-500 transition-colors text-white font-bold py-4 px-6 rounded-xl shadow-[0_0_15px_rgba(5,150,105,0.3)] text-xl">
             Team Login
           </Link>
-          <Link href="/admin" className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 transition-colors text-gray-300 font-bold py-4 px-6 rounded-xl">
-            Admin Panel
-          </Link>
         </div>
       </div>
     </div>

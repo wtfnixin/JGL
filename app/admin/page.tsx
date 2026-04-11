@@ -107,6 +107,12 @@ export default function Admin() {
     setNewTeamName('');
   };
 
+  const handleDeleteTeam = (team: any) => {
+    if (window.confirm(`Are you sure you want to permanently delete team "${team.name}"? This will wipe all their scores and votes too.`)) {
+      executeAction(`delete_${team.id}`, '/api/admin/delete-team', { team_id: team.id });
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center p-6 text-[#ededed] font-mono selection:bg-[#00FF41] selection:text-black">
@@ -260,17 +266,27 @@ export default function Admin() {
                           <span>CODE: <strong className="text-[#ededed]">{team.code}</strong></span>
                         </span>
                      </div>
-                     <button
-                        disabled={runningTask !== null || isOnStage}
-                        onClick={() => executeAction(`stage_${team.code}`, '/api/admin/set-stage', { team_id: team.id })}
-                        className={`text-xs px-4 py-2 border font-bold uppercase tracking-widest transition-colors whitespace-nowrap
-                          ${isOnStage 
-                             ? 'border-transparent text-[#00FF41] opacity-60 cursor-default' 
-                             : 'border-[#333] text-[#ededed] hover:bg-[#ededed] hover:text-black'} 
-                          ${runningTask === `stage_${team.code}` ? '!bg-yellow-500 !text-black !border-yellow-500' : ''}`}
-                     >
-                        {isOnStage ? 'ON STAGE' : runningTask === `stage_${team.code}` ? 'PUSHING...' : 'PUSH TO STAGE'}
-                     </button>
+                     <div className="flex items-center gap-2">
+                       <button
+                          disabled={runningTask !== null || isOnStage}
+                          onClick={() => executeAction(`stage_${team.code}`, '/api/admin/set-stage', { team_id: team.id })}
+                          className={`text-xs px-4 py-2 border font-bold uppercase tracking-widest transition-colors whitespace-nowrap
+                            ${isOnStage 
+                               ? 'border-transparent text-[#00FF41] opacity-60 cursor-default' 
+                               : 'border-[#333] text-[#ededed] hover:bg-[#ededed] hover:text-black'} 
+                            ${runningTask === `stage_${team.code}` ? '!bg-yellow-500 !text-black !border-yellow-500' : ''}`}
+                       >
+                          {isOnStage ? 'ON STAGE' : runningTask === `stage_${team.code}` ? 'PUSHING...' : 'PUSH TO STAGE'}
+                       </button>
+                       <button
+                          disabled={runningTask !== null}
+                          onClick={() => handleDeleteTeam(team)}
+                          title="Delete Team"
+                          className="text-xs px-3 py-2 border border-[#333] text-red-500 hover:bg-red-500 hover:text-white transition-colors disabled:opacity-50"
+                       >
+                          X
+                       </button>
+                     </div>
                   </div>
                 );
               })}

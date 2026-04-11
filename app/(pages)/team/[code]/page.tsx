@@ -80,7 +80,7 @@ export default function Team({ params }: { params: { code: string } }) {
         {gameState?.phase === 'voting_open' && gameState?.current_team_id !== teamInfo?.team_id && (
           <div className="bg-gradient-to-br from-indigo-900/40 to-blue-900/40 border border-blue-500/30 p-8 rounded-3xl shadow-[0_0_40px_rgba(59,130,246,0.15)] text-center space-y-6">
             <h2 className="text-3xl font-black text-blue-100">Voting is Open!</h2>
-            <p className="text-blue-200 text-lg">Rate the team currently on stage (Team ID: {gameState.current_team_id})</p>
+            <p className="text-blue-200 text-lg">Rate the team currently on stage: <strong className="text-white text-xl">{gameState.current_team_name || 'Loading...'}</strong></p>
             <button 
               onClick={handleVote} 
               className="w-full md:w-auto px-12 py-5 bg-blue-500 hover:bg-blue-400 text-white font-black text-xl rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.5)] transition-all transform hover:-translate-y-1"
