@@ -12,6 +12,11 @@ export function middleware(request: NextRequest) {
   const now = Date.now()
   const windowTime = 60000 // 60 seconds
   const maxRequests = 60 // Max requests per window
+
+  // Complete bypass for Admin routes
+  if (request.nextUrl.pathname.startsWith('/api/admin')) {
+    return NextResponse.next()
+  }
   
   const timestamps = rateLimitMap.get(ip) || []
   

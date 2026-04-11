@@ -11,6 +11,7 @@ export default function Admin() {
   const [gameState, setGameState] = useState<any>({ phase: 'waiting', current_team_id: null });
   const [teams, setTeams] = useState<any[]>([]);
   const [scores, setScores] = useState<any[]>([]);
+  const [logs, setLogs] = useState<{id: number, text: string, status: 'success'|'error'|'pending', time: string}[]>([]);
   
   const [newTeamName, setNewTeamName] = useState('');
 
@@ -72,8 +73,18 @@ export default function Admin() {
     setIsChecking(false);
   };
 
-  const executeAction = async (taskId: string, endpoint: string, payload: any) => {
+  const addLog = (text: string, status: 'success'|'error'|'pending') => {
+    setLogs(prev => {
+      const newLog = { id: Date.now() + Math.random(), text, status, time: new Date().toLocaleTimeString() };
+      return [newLog, ...prev].slice(0, 15);
+    });
+  };
+
+  const executeAction = async (taskId: string, endpoint: string, payload: any, actionDesc: string) => {
     setRunningTask(taskId);
+    
+    addLog(`Initiating: ${actionDesc}`, 'pending');
+    
     try {
       const [res] = await Promise.all([
         fetch(endpoint, {
@@ -84,16 +95,22 @@ export default function Admin() {
         new Promise(resolve => setTimeout(resolve, 800))
       ]);
       
-      if (!res.ok) alert(`ACTION FAILED: ${res.statusText}`);
+      if (!res.ok) {
+        addLog(`FAILED: ${actionDesc} (${res.statusText})`, 'error');
+        alert(`ACTION FAILED: ${res.statusText}`);
+      } else {
+        addLog(`SUCCESS: ${actionDesc}`, 'success');
+      }
 
-      // FALLBACK REFETCH: In case the user hasn't turned on Supabase Real-Time yet
+      // FALLBACK REFETCH
       const { data: gData } = await supabase.from('game_state').select('*').limit(1).single();
       if (gData) setGameState(gData);
       
-      const { data: tData } = await supabase.from('teams').select('*');
+      const { data: tData } = await supabase.from('teams').select('*').order('created_at', { ascending: true });
       if (tData) setTeams(tData);
 
     } catch (e: any) {
+      addLog(`FATAL ERROR: ${e.message}`, 'error');
       alert(`SYS_ERR: ${e.message}`);
     } finally {
       setRunningTask(null);
@@ -103,13 +120,13 @@ export default function Admin() {
   const handleCreateTeam = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTeamName.trim()) return;
-    executeAction('create_team', '/api/admin/create-team', { name: newTeamName.trim() });
+    executeAction('create_team', '/api/admin/create-team', { name: newTeamName.trim() }, `Spawn Team "${newTeamName.trim()}"`);
     setNewTeamName('');
   };
 
   const handleDeleteTeam = (team: any) => {
     if (window.confirm(`Are you sure you want to permanently delete team "${team.name}"? This will wipe all their scores and votes too.`)) {
-      executeAction(`delete_${team.id}`, '/api/admin/delete-team', { team_id: team.id });
+      executeAction(`delete_${team.id}`, '/api/admin/delete-team', { team_id: team.id }, `Delete Team "${team.name}"`);
     }
   };
 
@@ -196,14 +213,14 @@ export default function Admin() {
                   taskId="phase_waiting"
                   runningTask={runningTask}
                   active={gameState.phase === 'waiting'}
-                  onClick={() => executeAction('phase_waiting', '/api/admin/set-phase', { phase: 'waiting' })} 
+                  onClick={() => executeAction('phase_waiting', '/api/admin/set-phase', { phase: 'waiting' }, "Set Phase: Waiting/Setup")} 
                 />
                 <PhaseButton 
                   label="[01] Voting Open" 
                   taskId="phase_open"
                   runningTask={runningTask}
                   active={gameState.phase === 'voting_open'}
-                  onClick={() => executeAction('phase_open', '/api/admin/set-phase', { phase: 'voting_open' })} 
+                  onClick={() => executeAction('phase_open', '/api/admin/set-phase', { phase: 'voting_open' }, "Set Phase: Voting Open")} 
                 />
                 <PhaseButton 
                   label="[02] Voting Closed" 
@@ -211,14 +228,14 @@ export default function Admin() {
                   taskId="phase_closed"
                   runningTask={runningTask}
                   active={gameState.phase === 'voting_closed'}
-                  onClick={() => executeAction('phase_closed', '/api/admin/set-phase', { phase: 'voting_closed' })} 
+                  onClick={() => executeAction('phase_closed', '/api/admin/set-phase', { phase: 'voting_closed' }, "Set Phase: Voting Closed")} 
                 />
                 <PhaseButton 
                   label="[03] Show Results" 
                   taskId="phase_results"
                   runningTask={runningTask}
                   active={gameState.phase === 'results'}
-                  onClick={() => executeAction('phase_results', '/api/admin/set-phase', { phase: 'results' })} 
+                  onClick={() => executeAction('phase_results', '/api/admin/set-phase', { phase: 'results' }, "Set Phase: Show Results")} 
                 />
               </div>
             </div>
@@ -269,7 +286,7 @@ export default function Admin() {
                      <div className="flex items-center gap-2">
                        <button
                           disabled={runningTask !== null || isOnStage}
-                          onClick={() => executeAction(`stage_${team.code}`, '/api/admin/set-stage', { team_id: team.id })}
+                          onClick={() => executeAction(`stage_${team.code}`, '/api/admin/set-stage', { team_id: team.id }, `Push Team "${team.name}" to Stage`)}
                           className={`text-xs px-4 py-2 border font-bold uppercase tracking-widest transition-colors whitespace-nowrap
                             ${isOnStage 
                                ? 'border-transparent text-[#00FF41] opacity-60 cursor-default' 
@@ -308,6 +325,32 @@ export default function Admin() {
               <span>Launch Projector</span>
               <span className="opacity-0 group-hover:opacity-100 transition-opacity">↗</span>
             </a>
+          </div>
+
+          {/* BOTTOM ROW: Action Log Terminal */}
+          <div className="lg:col-span-12 border-2 border-[#333] p-6 bg-[#0a0a0a] min-h-[250px] flex flex-col font-mono">
+            <div className="flex justify-between items-center mb-4 border-b border-[#333] pb-4">
+              <h2 className="text-[#00FF41] text-xs font-bold tracking-[0.2em] uppercase">System Action Log</h2>
+              <span className="text-[#666] text-xs">Waiting for events...</span>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-2 pr-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+               {logs.length === 0 && <div className="text-[#444] text-xs opacity-50">Log empty. Actions will be recorded here.</div>}
+               {logs.map((log) => {
+                 let color = "text-[#888]";
+                 if (log.status === 'success') color = "text-[#00FF41]";
+                 if (log.status === 'error') color = "text-red-500";
+                 if (log.status === 'pending') color = "text-yellow-500";
+                 
+                 return (
+                   <div key={log.id} className="flex gap-4 text-xs tracking-wider">
+                     <span className="text-[#555] shrink-0">[{log.time}]</span>
+                     <span className={`${color}`}>
+                       {log.status === 'pending' ? '...' : (log.status === 'success' ? '✔' : '✖')} {log.text}
+                     </span>
+                   </div>
+                 );
+               })}
+            </div>
           </div>
 
         </div>

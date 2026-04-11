@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase-browser';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Team({ params }: { params: { code: string } }) {
   const [gameState, setGameState] = useState<any>({});
@@ -77,65 +78,118 @@ export default function Team({ params }: { params: { code: string } }) {
         </div>
 
         {/* Action / Voting Block */}
-        {gameState?.phase === 'voting_open' && gameState?.current_team_id !== teamInfo?.team_id && (
-          <div className="bg-gradient-to-br from-indigo-900/40 to-blue-900/40 border border-blue-500/30 p-8 rounded-3xl shadow-[0_0_40px_rgba(59,130,246,0.15)] text-center space-y-6">
-            <h2 className="text-3xl font-black text-blue-100">Voting is Open!</h2>
-            <p className="text-blue-200 text-lg">Rate the team currently on stage: <strong className="text-white text-xl">{gameState.current_team_name || 'Loading...'}</strong></p>
-            <button 
-              onClick={handleVote} 
-              className="w-full md:w-auto px-12 py-5 bg-blue-500 hover:bg-blue-400 text-white font-black text-xl rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.5)] transition-all transform hover:-translate-y-1"
+        <AnimatePresence mode="popLayout">
+          {gameState?.phase === 'voting_open' && gameState?.current_team_id !== teamInfo?.team_id && (
+            <motion.div 
+              initial={{ opacity: 0, y: 30, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -30, scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="bg-gradient-to-br from-indigo-900/40 to-blue-900/40 border border-blue-500/30 p-8 rounded-3xl shadow-[0_0_40px_rgba(59,130,246,0.15)] text-center space-y-6"
             >
-              CAST VOTE
-            </button>
-          </div>
-        )}
+              <h2 className="text-3xl font-black text-blue-100">Voting is Open!</h2>
+              <p className="text-blue-200 text-lg">Rate the team currently on stage: <strong className="text-white text-xl">{gameState.current_team_name || 'Loading...'}</strong></p>
+              <motion.button 
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleVote} 
+                className="w-full md:w-auto px-12 py-5 bg-blue-500 hover:bg-blue-400 text-white font-black text-xl rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.5)] transition-colors"
+              >
+                CAST VOTE
+              </motion.button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Status Indicators */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl">
+          <motion.div layout className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl">
             <h3 className="text-gray-400 font-bold uppercase tracking-wider text-xs mb-2">Current Phase</h3>
-            <div className="text-2xl font-bold capitalize text-white">
+            <motion.div 
+              key={gameState?.phase}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="text-2xl font-bold capitalize text-white"
+            >
               {gameState?.phase ? gameState.phase.replace('_', ' ') : 'Loading...'}
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
           
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl">
+          <motion.div layout className="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-xl">
              <h3 className="text-gray-400 font-bold uppercase tracking-wider text-xs mb-2">Stage Status</h3>
-             {gameState?.current_team_id ? (
-                <div className="text-xl font-medium text-white">Team <span className="font-bold text-2xl text-emerald-400">{gameState.current_team_name || gameState.current_team_id}</span> is performing</div>
-             ) : (
-                <div className="text-xl font-medium text-gray-500">Stage is empty</div>
-             )}
-          </div>
+             <AnimatePresence mode="wait">
+               {gameState?.current_team_id ? (
+                  <motion.div 
+                    key={gameState.current_team_id}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="text-xl font-medium text-white"
+                  >
+                    Team <span className="font-bold text-2xl text-emerald-400">{gameState.current_team_name || gameState.current_team_id}</span> is performing
+                  </motion.div>
+               ) : (
+                  <motion.div 
+                    key="empty"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="text-xl font-medium text-gray-500"
+                  >
+                    Stage is empty
+                  </motion.div>
+               )}
+             </AnimatePresence>
+          </motion.div>
         </div>
 
         {/* Live Scoreboard */}
-        {gameState?.phase === 'results' && (
-          <div className="bg-gray-900 border border-gray-800 rounded-3xl p-6 shadow-2xl space-y-6 mt-8">
-            <h2 className="text-2xl font-black border-b border-gray-800 pb-4 text-emerald-400 tracking-wide">Final Results</h2>
-            <div className="space-y-4">
-              {scores.sort((a,b) => (b.audience_score + b.bonus_score) - (a.audience_score + a.bonus_score)).map((score, index) => (
-                <div key={score.id} className="flex justify-between items-center bg-gray-950 border border-gray-800 p-5 rounded-xl">
-                  <div className="flex items-center gap-4">
-                    <span className="text-gray-500 font-black text-xl w-6">{index + 1}.</span>
-                    <span className="font-bold text-xl text-gray-100">Team {score.team_id}</span>
-                  </div>
-                  <div className="text-emerald-400 font-black text-3xl">
-                    {score.audience_score + score.bonus_score} <span className="text-base font-medium text-gray-500 uppercase tracking-widest">pts</span>
-                  </div>
-                </div>
-              ))}
-              {scores.length === 0 && <div className="text-gray-500 italic p-4 text-center">No scores computed yet.</div>}
-            </div>
-          </div>
-        )}
+        <AnimatePresence>
+          {gameState?.phase === 'results' && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-gray-900 border border-gray-800 rounded-3xl p-6 shadow-2xl space-y-6 mt-8 overflow-hidden"
+            >
+              <h2 className="text-2xl font-black border-b border-gray-800 pb-4 text-emerald-400 tracking-wide">Final Results</h2>
+              <div className="space-y-4">
+                {scores.sort((a,b) => (b.audience_score + b.bonus_score) - (a.audience_score + a.bonus_score)).map((score, index) => (
+                  <motion.div 
+                    key={score.id} 
+                    initial={{ opacity: 0, x: -50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="flex justify-between items-center bg-gray-950 border border-gray-800 p-5 rounded-xl"
+                  >
+                    <div className="flex items-center gap-4">
+                      <span className="text-gray-500 font-black text-xl w-6">{index + 1}.</span>
+                      <span className="font-bold text-xl text-gray-100">Team {score.team_id}</span>
+                    </div>
+                    <div className="text-emerald-400 font-black text-3xl">
+                      {score.audience_score + score.bonus_score} <span className="text-base font-medium text-gray-500 uppercase tracking-widest">pts</span>
+                    </div>
+                  </motion.div>
+                ))}
+                {scores.length === 0 && <div className="text-gray-500 italic p-4 text-center">No scores computed yet.</div>}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {/* Debug Raw Data (Hidden mostly, but keeping for dev) */}
-        {!['voting_open', 'results'].includes(gameState?.phase) && (
-            <div className="text-center opacity-50 pt-12">
-               Waiting for the next session to begin...
-            </div>
-        )}
+        {/* Debug Raw Data / Rest State */}
+        <AnimatePresence>
+          {!['voting_open', 'results'].includes(gameState?.phase) && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="text-center opacity-50 pt-12"
+              >
+                 Waiting for the next session to begin...
+              </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
