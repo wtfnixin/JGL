@@ -1,0 +1,968 @@
+================================================================================
+JAIN'S GOT LATENT — COMPLETE BACKEND DOCUMENTATION
+FOR: ANTIGRAVITY DEVELOPMENT TEAM
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+1.  Project Overview
+2.  Tech Stack
+3.  Architecture
+4.  Folder Structure
+5.  Libraries & Dependencies
+6.  Environment Variables
+7.  Database Schema (Full SQL)
+8.  Supabase Setup Instructions
+9.  Two Supabase Clients
+10. Admin Auth Helper
+11. All API Routes (Full Logic)
+12. Real-time Subscription Pattern
+13. Crash Prevention Rules
+14. Build Order
+
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+Jain's Got Latent is a live event voting platform for a 10-hour hackathon.
+
+- Teams participate and perform on stage one at a time
+- Other teams vote for the performing team (1-10 points)
+- Admin controls the entire event (push teams, open/close voting, award bonus)
+- Bonus is a label-only award (no numeric points), decided by admin
+- Teams can submit a guess of their own score after voting closes
+- Everything updates in real-time across all connected devices
+- No judges. No anonymous audience. Only logged-in teams vote.
+- Expected load: ~100 concurrent users over 10 hours
+
+
+================================================================================
+2. TECH STACK
+================================================================================
+
+Frontend + API Routes  :  Next.js 14 (App Router)
+Database               :  PostgreSQL via Supabase (free tier)
+Real-time              :  Supabase Real-time (WAL-based push)
+Hosting                :  Vercel (frontend) + Supabase (database)
+Auth                   :  Custom code-based login (no auth library)
+Connection Pooling     :  Supabase Supavisor (built-in pooler)
+
+WHY THIS STACK:
+- No custom server to manage or crash
+- Supabase handles all DB connections via pooler (prevents the 200-connection limit crash)
+- Real-time is push-based (WAL), not polling — zero extra load on DB
+- Vercel + Supabase both have generous free tiers that easily cover this event
+
+
+================================================================================
+3. ARCHITECTURE
+================================================================================
+
+                    +---------------------------+
+                    |   Next.js on Vercel        |
+                    |                           |
+                    |  /admin                   |
+                    |  /login                   |
+                    |  /team/[code]             |
+                    |                           |
+                    |  /api/admin/*             |
+                    |  /api/auth/*              |
+                    |  /api/vote                |
+                    |  /api/submit-guess        |
+                    |  /api/scores              |
+                    |  /api/game-state          |
+                    |  /api/ping                |
+                    +-------------+-------------+
+                                  |
+                     Supabase JS Client (browser = anon key)
+                     Next.js API Routes (server = service key)
+                                  |
+                    +-------------+-------------+
+                    |         Supabase           |
+                    |                           |
+                    |  PostgreSQL (pooler URL)  |
+                    |  Real-time Engine (WAL)   |
+                    |  Row Level Security       |
+                    +---------------------------+
+
+KEY POINTS:
+- Browser clients use ANON KEY — read only (RLS enforced)
+- API routes use SERVICE KEY — full read/write (RLS bypassed)
+- All writes go through Next.js API routes, never directly from browser
+- Real-time is subscribed from browser using anon key (read only is enough)
+- Connection pooler URL is used in all server-side DB access
+
+
+DATA FLOW FOR A VOTE:
+1. Team on /team/[code] clicks Submit Vote
+2. Browser calls POST /api/vote with { performing_team_id, voting_team_id, points_given }
+3. API route validates phase, checks self-vote, inserts into votes table
+4. API route recalculates audience_score and updates scores table
+5. DB trigger fires and syncs total_score
+6. Supabase WAL detects scores row changed
+7. Supabase pushes change to all subscribed clients
+8. All /team/[code] pages receive the update and re-render instantly
+
+
+================================================================================
+4. FOLDER STRUCTURE
+================================================================================
+
+latent/
+├── .env.local
+├── next.config.ts
+├── package.json
+│
+├── lib/                                  BACKEND UTILITIES
+│   ├── supabase-browser.ts               frontend supabase client
+│   ├── supabase-server.ts                backend supabase client
+│   └── admin-auth.ts                     password check helper
+│
+├── app/
+│   │
+│   ├── api/                              BACKEND (all API routes)
+│   │   ├── ping/route.ts
+│   │   ├── scores/route.ts
+│   │   ├── game-state/route.ts
+│   │   ├── vote/route.ts
+│   │   ├── submit-guess/route.ts
+│   │   ├── auth/
+│   │   │   └── team-login/route.ts
+│   │   └── admin/
+│   │       ├── create-team/route.ts
+│   │       ├── remove-team/route.ts
+│   │       ├── set-stage/route.ts
+│   │       ├── set-phase/route.ts
+│   │       └── award-bonus/route.ts
+│   │
+│   ├── (pages)/                          FRONTEND (all UI pages)
+│   │   ├── login/page.tsx
+│   │   ├── admin/page.tsx
+│   │   └── team/[code]/page.tsx
+│   │
+│   ├── layout.tsx
+│   └── page.tsx
+│
+├── components/                           FRONTEND (reusable UI)
+│   ├── admin/
+│   │   ├── TeamList.tsx
+│   │   ├── AddTeamForm.tsx
+│   │   ├── PhaseControls.tsx
+│   │   └── BonusForm.tsx
+│   ├── team/
+│   │   ├── VotingSlider.tsx
+│   │   ├── ScoreDisplay.tsx
+│   │   ├── GuessForm.tsx
+│   │   └── Leaderboard.tsx
+│   └── shared/
+│       └── ErrorBoundary.tsx
+│
+└── hooks/                                FRONTEND (reusable logic)
+    ├── useGameState.ts
+    ├── useScores.ts
+    └── useRealtimeSubscription.ts
+
+================================================================================
+5. LIBRARIES AND DEPENDENCIES
+================================================================================
+
+INSTALL:
+  npm install @supabase/supabase-js @supabase/ssr
+
+THAT IS ALL. No other libraries needed.
+
+DO NOT install:
+- socket.io (not needed, Supabase handles real-time)
+- next-auth or any auth library (custom code-based auth is sufficient)
+- prisma or any ORM (use Supabase JS client directly)
+- axios (use native fetch in API routes)
+- redux or zustand (use React state + Supabase real-time)
+
+
+================================================================================
+6. ENVIRONMENT VARIABLES
+================================================================================
+
+Create a file called .env.local in the project root:
+
+  NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+  SUPABASE_SERVICE_KEY=eyJ...
+  ADMIN_PASSWORD=choose-any-password-here
+
+NEXT_PUBLIC_SUPABASE_URL       -- from Supabase dashboard > Settings > API
+NEXT_PUBLIC_SUPABASE_ANON_KEY  -- from Supabase dashboard > Settings > API (safe to expose)
+SUPABASE_SERVICE_KEY           -- from Supabase dashboard > Settings > API (NEVER expose to browser)
+ADMIN_PASSWORD                 -- any string you choose, used to protect admin routes
+
+IMPORTANT:
+- SUPABASE_SERVICE_KEY must never be used in any frontend component
+- Only import supabase-server.ts inside /api route handlers
+- NEXT_PUBLIC_ prefix means it is bundled into the browser — only put safe keys there
+
+
+================================================================================
+7. DATABASE SCHEMA
+================================================================================
+
+Run all of this in the Supabase SQL Editor before starting development.
+
+--------------------------------------------------------------------------------
+TABLES
+--------------------------------------------------------------------------------
+
+-- Teams participating in the event
+CREATE TABLE teams (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name         TEXT NOT NULL,
+  code         TEXT UNIQUE NOT NULL,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- One score row per team. Entire scoring state lives here.
+CREATE TABLE scores (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id          UUID REFERENCES teams(id) ON DELETE CASCADE UNIQUE,
+  audience_score   INTEGER DEFAULT 0,
+  total_score      INTEGER DEFAULT 0,
+  bonus_awarded    BOOLEAN DEFAULT FALSE,
+  bonus_label      TEXT DEFAULT NULL,
+  guess_submitted  BOOLEAN DEFAULT FALSE,
+  guess_value      INTEGER DEFAULT NULL,
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- One row per vote. Unique pair prevents double voting at DB level.
+CREATE TABLE votes (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  performing_team_id   UUID REFERENCES teams(id) ON DELETE CASCADE,
+  voting_team_id       UUID REFERENCES teams(id) ON DELETE CASCADE,
+  points_given         INTEGER NOT NULL CHECK (points_given BETWEEN 1 AND 10),
+  created_at           TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(performing_team_id, voting_team_id)
+);
+
+-- Singleton row. Always exactly one row with id = 1. Controls the whole event.
+CREATE TABLE game_state (
+  id                INTEGER PRIMARY KEY DEFAULT 1,
+  current_team_id   UUID REFERENCES teams(id) ON DELETE SET NULL,
+  phase             TEXT DEFAULT 'waiting'
+                    CHECK (phase IN ('waiting', 'voting_open', 'voting_closed', 'results')),
+  updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Insert the singleton immediately after creating the table. Never insert again.
+INSERT INTO game_state (id) VALUES (1);
+
+--------------------------------------------------------------------------------
+TRIGGER (keeps total_score in sync automatically)
+--------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION sync_total_score()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.total_score := NEW.audience_score;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_sync_total_score
+BEFORE UPDATE OF audience_score ON scores
+FOR EACH ROW EXECUTE FUNCTION sync_total_score();
+
+-- NOTE: total_score currently equals audience_score only.
+-- If bonus points are ever added numerically in the future,
+-- update this trigger to include them.
+
+--------------------------------------------------------------------------------
+ROW LEVEL SECURITY
+--------------------------------------------------------------------------------
+
+ALTER TABLE teams      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scores     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE votes      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE game_state ENABLE ROW LEVEL SECURITY;
+
+-- Everyone can read (teams need to see scores and game state)
+CREATE POLICY "public read teams"      ON teams      FOR SELECT USING (true);
+CREATE POLICY "public read scores"     ON scores     FOR SELECT USING (true);
+CREATE POLICY "public read game_state" ON game_state FOR SELECT USING (true);
+
+-- No direct writes from browser allowed on any table.
+-- All writes go through API routes using the service key which bypasses RLS.
+
+--------------------------------------------------------------------------------
+ENABLE REAL-TIME
+--------------------------------------------------------------------------------
+
+In Supabase Dashboard:
+  Go to Database > Replication > Tables
+  Enable real-time for: game_state, scores
+
+These are the only two tables that need real-time.
+teams and votes do not need real-time.
+
+
+================================================================================
+8. SUPABASE SETUP INSTRUCTIONS
+================================================================================
+
+Step 1: Go to supabase.com and create a free account
+Step 2: Create a new project
+Step 3: Go to Settings > Database > Connection String
+        Copy the POOLER connection string (not the direct one)
+        It looks like: postgresql://postgres.[ref]:[password]@aws-0-ap-south-1.pooler.supabase.com:6543/postgres
+        Use this URL if you ever need a raw DB connection string
+Step 4: Go to Settings > API
+        Copy: Project URL -> NEXT_PUBLIC_SUPABASE_URL
+        Copy: anon public key -> NEXT_PUBLIC_SUPABASE_ANON_KEY
+        Copy: service_role key -> SUPABASE_SERVICE_KEY
+Step 5: Go to SQL Editor, run all SQL from Section 7 above
+Step 6: Go to Database > Replication, enable real-time for game_state and scores
+Step 7: Paste all env vars into .env.local
+
+
+================================================================================
+9. TWO SUPABASE CLIENTS
+================================================================================
+
+--------------------------------------------------------------------------------
+lib/supabase-browser.ts
+Used in: all frontend pages and components
+Key used: ANON KEY (safe, read only due to RLS)
+--------------------------------------------------------------------------------
+
+import { createBrowserClient } from '@supabase/ssr'
+
+export const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+
+--------------------------------------------------------------------------------
+lib/supabase-server.ts
+Used in: API route handlers ONLY. Never import in frontend.
+Key used: SERVICE KEY (bypasses RLS, full access)
+--------------------------------------------------------------------------------
+
+import { createClient } from '@supabase/supabase-js'
+
+export const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY!
+)
+
+
+================================================================================
+10. ADMIN AUTH HELPER
+================================================================================
+
+--------------------------------------------------------------------------------
+lib/admin-auth.ts
+--------------------------------------------------------------------------------
+
+export function isAdmin(req: Request): boolean {
+  return req.headers.get('x-admin-password') === process.env.ADMIN_PASSWORD
+}
+
+Every admin API route calls this at the top.
+If it returns false, return 401 immediately without touching the DB.
+
+Usage in every admin route:
+  if (!isAdmin(req)) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+The admin frontend must send this header with every admin request:
+  headers: { 'x-admin-password': ADMIN_PASSWORD }
+
+
+================================================================================
+11. ALL API ROUTES — FULL LOGIC
+================================================================================
+
+--------------------------------------------------------------------------------
+POST /api/admin/create-team
+--------------------------------------------------------------------------------
+
+PURPOSE: Admin adds a new team before or during the event.
+
+HEADERS REQUIRED:
+  x-admin-password: [ADMIN_PASSWORD]
+
+REQUEST BODY:
+  { name: string }
+
+LOGIC:
+  1. Check isAdmin(req) — return 401 if false
+  2. Validate body.name exists and is not empty string
+  3. Generate a random 6-character uppercase code:
+       const code = Math.random().toString(36).substring(2, 8).toUpperCase()
+  4. Insert into teams:
+       INSERT INTO teams (name, code) VALUES ($1, $2) RETURNING *
+  5. Insert a blank score row for this team:
+       INSERT INTO scores (team_id) VALUES ($1)
+  6. Return { id, name, code }
+
+ERRORS:
+  400 — name is missing or empty
+  401 — wrong admin password
+  409 — code collision (rare but handle it: regenerate and retry once)
+  500 — unexpected DB error
+
+--------------------------------------------------------------------------------
+DELETE /api/admin/remove-team
+--------------------------------------------------------------------------------
+
+PURPOSE: Admin removes a team from the event.
+
+HEADERS REQUIRED:
+  x-admin-password: [ADMIN_PASSWORD]
+
+REQUEST BODY:
+  { team_id: string }
+
+LOGIC:
+  1. Check isAdmin(req) — return 401 if false
+  2. Validate team_id exists in body
+  3. Check game_state.current_team_id — if it matches this team_id, reject:
+       return 400 { error: 'Cannot remove team that is currently on stage' }
+  4. DELETE FROM teams WHERE id = $1
+     (CASCADE will auto-delete their scores and votes rows)
+  5. Return { ok: true }
+
+ERRORS:
+  400 — team is on stage, or team_id missing
+  401 — wrong admin password
+  404 — team not found
+  500 — unexpected DB error
+
+--------------------------------------------------------------------------------
+POST /api/admin/set-stage
+--------------------------------------------------------------------------------
+
+PURPOSE: Admin pushes a team onto the stage. Resets phase to waiting.
+
+HEADERS REQUIRED:
+  x-admin-password: [ADMIN_PASSWORD]
+
+REQUEST BODY:
+  { team_id: string }
+
+LOGIC:
+  1. Check isAdmin(req) — return 401 if false
+  2. Validate team_id exists in body
+  3. Verify team exists:
+       SELECT id FROM teams WHERE id = $1
+       Return 404 if not found
+  4. Update game_state:
+       UPDATE game_state
+       SET current_team_id = $1,
+           phase = 'waiting',
+           updated_at = NOW()
+       WHERE id = 1
+  5. Return { ok: true }
+
+SIDE EFFECT:
+  Supabase real-time detects game_state change and pushes to all subscribers.
+  All /team/[code] pages receive the update and re-render immediately.
+
+ERRORS:
+  401 — wrong admin password
+  404 — team not found
+  500 — unexpected DB error
+
+--------------------------------------------------------------------------------
+POST /api/admin/set-phase
+--------------------------------------------------------------------------------
+
+PURPOSE: Admin changes the event phase (controls what teams can see and do).
+
+HEADERS REQUIRED:
+  x-admin-password: [ADMIN_PASSWORD]
+
+REQUEST BODY:
+  { phase: 'waiting' | 'voting_open' | 'voting_closed' | 'results' }
+
+LOGIC:
+  1. Check isAdmin(req) — return 401 if false
+  2. Validate phase is one of the four allowed values
+  3. UPDATE game_state SET phase = $1, updated_at = NOW() WHERE id = 1
+  4. Return { ok: true }
+
+PHASE MEANINGS:
+  waiting       -- team is on stage, voting not started yet
+  voting_open   -- all other teams can now cast votes
+  voting_closed -- voting has ended, performing team can submit guess
+  results       -- show full leaderboard to everyone
+
+ERRORS:
+  400 — invalid phase value
+  401 — wrong admin password
+  500 — unexpected DB error
+
+--------------------------------------------------------------------------------
+POST /api/admin/award-bonus
+--------------------------------------------------------------------------------
+
+PURPOSE: Admin awards a bonus label to a team. No points added. Just recorded.
+
+HEADERS REQUIRED:
+  x-admin-password: [ADMIN_PASSWORD]
+
+REQUEST BODY:
+  { team_id: string, bonus_label: string }
+
+LOGIC:
+  1. Check isAdmin(req) — return 401 if false
+  2. Validate both team_id and bonus_label exist in body
+  3. UPDATE scores
+     SET bonus_awarded = TRUE,
+         bonus_label = $2
+     WHERE team_id = $1
+  4. Return { ok: true }
+
+NOTE:
+  bonus_awarded is a boolean flag.
+  bonus_label is a text string like "Most Unhinged Website" or "Biggest Disaster".
+  No numeric value is added to total_score.
+  The bonus badge appears on the results screen.
+  Admin can overwrite the bonus label by calling this endpoint again.
+
+ERRORS:
+  400 — team_id or bonus_label missing
+  401 — wrong admin password
+  404 — team not found
+  500 — unexpected DB error
+
+--------------------------------------------------------------------------------
+POST /api/auth/team-login
+--------------------------------------------------------------------------------
+
+PURPOSE: Teams enter their code to log in and get their team info.
+
+NO HEADERS REQUIRED (public endpoint)
+
+REQUEST BODY:
+  { code: string }
+
+LOGIC:
+  1. Validate code exists in body
+  2. Normalize: trim whitespace, convert to uppercase
+  3. SELECT id, name, code FROM teams WHERE UPPER(code) = $1
+  4. If not found: return 401 { error: 'Invalid code' }
+  5. If found: return { team_id, team_name, code }
+
+FRONTEND BEHAVIOUR (not backend logic, but document for clarity):
+  Frontend stores { team_id, team_name, code } in localStorage under key 'jgl_team'
+  Frontend redirects to /team/[code]
+  On every subsequent page load, frontend reads from localStorage to identify the team
+
+ERRORS:
+  400 — code missing from body
+  401 — code not found in database
+  500 — unexpected DB error
+
+--------------------------------------------------------------------------------
+POST /api/vote
+--------------------------------------------------------------------------------
+
+PURPOSE: A team casts a vote for the performing team.
+
+NO HEADERS REQUIRED (but team identity validated via body)
+
+REQUEST BODY:
+  { performing_team_id: string, voting_team_id: string, points_given: number }
+
+LOGIC:
+  1. Validate all three fields exist in body
+  2. Validate points_given is an integer between 1 and 10 inclusive
+  3. Fetch current game_state:
+       SELECT phase, current_team_id FROM game_state WHERE id = 1
+  4. If phase is not 'voting_open':
+       return 403 { error: 'Voting is not open' }
+  5. If voting_team_id === performing_team_id:
+       return 400 { error: 'Cannot vote for your own team' }
+  6. If performing_team_id !== game_state.current_team_id:
+       return 400 { error: 'This team is not currently on stage' }
+  7. Insert the vote:
+       INSERT INTO votes (performing_team_id, voting_team_id, points_given)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (performing_team_id, voting_team_id) DO NOTHING
+       RETURNING id
+  8. If RETURNING id is null (conflict happened — already voted):
+       return { ok: true, duplicate: true }
+  9. If inserted successfully:
+       Recalculate audience_score from source of truth (never increment blindly):
+         UPDATE scores
+         SET audience_score = (
+           SELECT COALESCE(SUM(points_given), 0)
+           FROM votes
+           WHERE performing_team_id = $1
+         )
+         WHERE team_id = $1
+       DB trigger fires automatically and syncs total_score
+       return { ok: true, duplicate: false }
+
+WHY RECALCULATE INSTEAD OF INCREMENT:
+  If two votes arrive simultaneously and both do audience_score + 1,
+  one write will overwrite the other and a vote is lost.
+  Recalculating from SUM(votes) is always accurate regardless of concurrency.
+
+SIDE EFFECT:
+  Supabase real-time detects scores row change and pushes to all subscribers.
+
+ERRORS:
+  400 — missing fields, self-vote, or wrong team on stage
+  403 — voting not open
+  500 — unexpected DB error
+
+--------------------------------------------------------------------------------
+POST /api/submit-guess
+--------------------------------------------------------------------------------
+
+PURPOSE: The performing team submits their guess of their own total score.
+         Only allowed once. Only allowed when phase is voting_closed.
+
+NO HEADERS REQUIRED (team identity validated via body)
+
+REQUEST BODY:
+  { team_id: string, guess: number }
+
+LOGIC:
+  1. Validate team_id and guess exist in body
+  2. Validate guess is a positive integer
+  3. Fetch current phase:
+       SELECT phase FROM game_state WHERE id = 1
+  4. If phase is not 'voting_closed':
+       return 403 { error: 'Guess submission only allowed after voting closes' }
+  5. Fetch current score record:
+       SELECT guess_submitted FROM scores WHERE team_id = $1
+  6. If guess_submitted is true:
+       return 400 { error: 'Guess already submitted' }
+  7. Record the guess:
+       UPDATE scores
+       SET guess_submitted = TRUE,
+           guess_value = $2
+       WHERE team_id = $1
+  8. Return { ok: true, guess: number }
+
+NOTE:
+  This only records the guess. It does not calculate or award anything.
+  The admin sees the guess value in their panel.
+  Admin decides whether to award a bonus using /api/admin/award-bonus.
+
+ERRORS:
+  400 — missing fields or guess already submitted
+  403 — wrong phase
+  404 — team not found
+  500 — unexpected DB error
+
+--------------------------------------------------------------------------------
+GET /api/scores
+--------------------------------------------------------------------------------
+
+PURPOSE: Fetch all teams with their full score data. Used on initial page load
+         before real-time subscription kicks in.
+
+NO HEADERS REQUIRED (public endpoint)
+
+LOGIC:
+  SELECT
+    t.id,
+    t.name,
+    t.code,
+    s.audience_score,
+    s.total_score,
+    s.bonus_awarded,
+    s.bonus_label,
+    s.guess_submitted,
+    s.guess_value
+  FROM scores s
+  JOIN teams t ON t.id = s.team_id
+  ORDER BY s.total_score DESC
+
+  Return the array of results.
+
+ERRORS:
+  500 — unexpected DB error
+
+--------------------------------------------------------------------------------
+GET /api/game-state
+--------------------------------------------------------------------------------
+
+PURPOSE: Fetch the current event phase and which team is on stage.
+         Used on initial page load before real-time subscription kicks in.
+
+NO HEADERS REQUIRED (public endpoint)
+
+LOGIC:
+  SELECT
+    g.phase,
+    g.current_team_id,
+    g.updated_at,
+    t.name AS current_team_name,
+    t.code AS current_team_code
+  FROM game_state g
+  LEFT JOIN teams t ON t.id = g.current_team_id
+  WHERE g.id = 1
+
+  Return the single result row.
+
+ERRORS:
+  500 — unexpected DB error
+
+--------------------------------------------------------------------------------
+GET /api/ping
+--------------------------------------------------------------------------------
+
+PURPOSE: Keeps Vercel serverless functions warm during the event.
+         Admin panel calls this every 2 minutes silently.
+         Prevents cold start delays when activity spikes.
+
+NO HEADERS REQUIRED
+
+LOGIC:
+  return Response.json({ ok: true, time: Date.now() })
+
+No DB call. No logic. Just return immediately.
+
+
+================================================================================
+12. REAL-TIME SUBSCRIPTION PATTERN
+================================================================================
+
+This pattern is used in every frontend page that needs live updates.
+The logic is identical on all pages — only the handler functions differ.
+
+  useEffect(() => {
+    // Step 1: Load current data immediately on page mount
+    // Do not wait for real-time — it may take a second to connect
+    fetchGameState()   // calls GET /api/game-state
+    fetchScores()      // calls GET /api/scores
+
+    // Step 2: Open ONE channel with TWO listeners
+    const channel = supabase
+      .channel('jgl-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'game_state' },
+        (payload) => handleGameStateChange(payload.new)
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'scores' },
+        (payload) => handleScoreChange(payload.new)
+      )
+      .subscribe((status) => {
+        // Refetch data when connection (re)establishes
+        // In case any updates were missed during a network blip
+        if (status === 'SUBSCRIBED') {
+          fetchGameState()
+          fetchScores()
+        }
+      })
+
+    // Step 3: ALWAYS clean up on unmount — this prevents subscription leaks
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+RULES:
+  - Open exactly ONE channel per page
+  - Always return the cleanup function from useEffect
+  - Always refetch on SUBSCRIBED status
+  - Never open a subscription inside a loop or inside a child component
+  - Pass data down via props or context, do not open subscriptions in children
+
+
+TEAM PAGE STATE MACHINE (handleGameStateChange logic):
+
+  function handleGameStateChange(newState) {
+    setGameState(newState)
+
+    if (newState.current_team_id === myTeamId) {
+      setView('on-stage')             // I am performing
+    } else if (newState.phase === 'voting_open') {
+      setView('voting')               // I should vote
+    } else if (newState.phase === 'voting_closed') {
+      setView('waiting-for-results')  // voting done, waiting
+    } else if (newState.phase === 'results') {
+      setView('leaderboard')          // show full results
+    } else {
+      setView('waiting')              // waiting for next team
+    }
+  }
+
+  Views:
+    on-stage          -- show live score ticking up + guess form when voting_closed
+    voting            -- show slider 1-10 + submit button (hide if already voted)
+    waiting-for-results -- show current scores, no interaction
+    leaderboard       -- show full sorted results with bonus badges
+    waiting           -- show which team is on stage, nothing to do
+
+
+================================================================================
+13. CRASH PREVENTION RULES
+================================================================================
+
+ALL OF THESE MUST BE IMPLEMENTED. NOT OPTIONAL.
+
+--------------------------------------------------------------------------------
+RULE 1: USE SUPABASE POOLER URL
+--------------------------------------------------------------------------------
+In Supabase dashboard go to Settings > Database > Connection String.
+Use the POOLER URL, not the direct URL.
+Pooler URL format: ...pooler.supabase.com:6543/postgres
+Direct URL format: ...supabase.co:5432/postgres
+
+Using the direct URL means every API call opens a new Postgres connection.
+100 users = 100 connections. Free tier allows 200. You will hit the limit.
+Using the pooler means all requests share a pool of ~10 connections.
+
+--------------------------------------------------------------------------------
+RULE 2: NEVER INCREMENT SCORES BLINDLY
+--------------------------------------------------------------------------------
+WRONG (causes race conditions under concurrent votes):
+  UPDATE scores SET audience_score = audience_score + 1 WHERE team_id = $1
+
+CORRECT (always accurate, safe under concurrency):
+  UPDATE scores
+  SET audience_score = (
+    SELECT COALESCE(SUM(points_given), 0)
+    FROM votes WHERE performing_team_id = $1
+  )
+  WHERE team_id = $1
+
+--------------------------------------------------------------------------------
+RULE 3: UNIQUE CONSTRAINT PREVENTS DOUBLE VOTES
+--------------------------------------------------------------------------------
+The votes table has: UNIQUE(performing_team_id, voting_team_id)
+Use ON CONFLICT DO NOTHING in the INSERT statement.
+If a team votes twice (accidental double submit, network retry), the second
+insert is silently ignored at the database level. No application logic needed.
+
+--------------------------------------------------------------------------------
+RULE 4: VALIDATE PHASE BEFORE EVERY VOTE
+--------------------------------------------------------------------------------
+Always check game_state.phase === 'voting_open' at the start of POST /api/vote.
+Reject immediately if not. Do not touch the votes table if voting is closed.
+
+--------------------------------------------------------------------------------
+RULE 5: ALWAYS CLEAN UP SUBSCRIPTIONS
+--------------------------------------------------------------------------------
+Every useEffect that opens a Supabase channel MUST return a cleanup function:
+  return () => { supabase.removeChannel(channel) }
+
+Without this, every component mount leaks a connection.
+100 users with leaking subscriptions = hundreds of stale open connections.
+
+--------------------------------------------------------------------------------
+RULE 6: ONE SUBSCRIPTION PER PAGE
+--------------------------------------------------------------------------------
+Open ONE channel with multiple .on() listeners. Do not open separate channels
+for game_state and scores. Do not open subscriptions inside child components.
+Open at the page level, pass data down via props.
+
+--------------------------------------------------------------------------------
+RULE 7: KEEP VERCEL FUNCTIONS WARM
+--------------------------------------------------------------------------------
+Admin panel must silently ping GET /api/ping every 2 minutes while open:
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetch('/api/ping').catch(() => {})
+    }, 2 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+Prevents cold start delays when there is a gap in activity during the event.
+
+--------------------------------------------------------------------------------
+RULE 8: WRAP ALL API ROUTES IN TRY/CATCH
+--------------------------------------------------------------------------------
+Every single API route must have a top-level try/catch.
+On catch, log the error server-side and return a clean 500.
+Never let an unhandled error crash a serverless function.
+
+Template for every route:
+  export async function POST(req: Request) {
+    try {
+      // all logic here
+    } catch (error) {
+      console.error('[route name] error:', error)
+      return Response.json({ error: 'Internal server error' }, { status: 500 })
+    }
+  }
+
+--------------------------------------------------------------------------------
+RULE 9: VALIDATE ALL INPUTS BEFORE TOUCHING DB
+--------------------------------------------------------------------------------
+Check that all required fields exist and have valid types/ranges.
+Return 400 before any DB call if validation fails.
+This prevents malformed queries from reaching Postgres.
+
+--------------------------------------------------------------------------------
+RULE 10: REFETCH ON REAL-TIME RECONNECT
+--------------------------------------------------------------------------------
+Inside .subscribe((status) => { ... }), when status === 'SUBSCRIBED',
+always call fetchGameState() and fetchScores() again.
+This ensures no update is missed if a user's network dropped and reconnected.
+
+
+================================================================================
+14. BUILD ORDER
+================================================================================
+
+Follow this exact order. Each step depends on the previous.
+
+PHASE 1 — INFRASTRUCTURE
+  1. Create Supabase project
+  2. Run all SQL from Section 7 in Supabase SQL Editor
+  3. Enable real-time on game_state and scores tables
+  4. Set up RLS policies
+  5. Copy all env vars into .env.local
+  6. Create Next.js project: npx create-next-app@latest
+  7. Install dependencies: npm install @supabase/supabase-js @supabase/ssr
+  8. Create lib/supabase-browser.ts
+  9. Create lib/supabase-server.ts
+  10. Create lib/admin-auth.ts
+
+PHASE 2 — API ROUTES (build and test each one before moving to next)
+  11. GET  /api/ping             (test: browser visit, should return { ok: true })
+  12. GET  /api/game-state       (test: should return phase: waiting)
+  13. GET  /api/scores           (test: should return empty array)
+  14. POST /api/auth/team-login  (test: with valid and invalid codes)
+  15. POST /api/admin/create-team (test: creates team, check Supabase table)
+  16. DELETE /api/admin/remove-team (test: removes team and cascade deletes)
+  17. POST /api/admin/set-stage  (test: updates game_state)
+  18. POST /api/admin/set-phase  (test: all four phases)
+  19. POST /api/admin/award-bonus (test: sets bonus_awarded and bonus_label)
+  20. POST /api/vote             (test: valid vote, self-vote, double vote, wrong phase)
+  21. POST /api/submit-guess     (test: valid guess, double submit, wrong phase)
+
+PHASE 3 — FRONTEND
+  22. /login page
+  23. /admin page
+  24. /team/[code] page with full state machine
+  25. Add real-time subscriptions
+  26. Add warm-up ping in admin panel
+
+PHASE 4 — TESTING
+  27. Open 5 browser tabs, log in as 5 different teams
+  28. Run one complete team cycle manually (push, open voting, vote, close, guess, bonus, results)
+  29. Test double vote prevention (vote twice from same tab)
+  30. Test self-vote rejection
+  31. Test guess submission is one-time only
+  32. Test phase gating (vote when closed, guess when voting open)
+
+PHASE 5 — DEPLOY
+  33. Push to GitHub
+  34. Connect repo to Vercel
+  35. Add all env vars to Vercel dashboard
+  36. Deploy
+  37. Do a full dry run on production before the event
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================
