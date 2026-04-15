@@ -1,4 +1,5 @@
 import "./globals.css";
+import InspectGuard from "@/components/InspectGuard";
 
 export const metadata = {
   title: "Jain's Got Latent",
@@ -12,7 +13,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        <InspectGuard />
+        {children}
+      </body>
     </html>
   );
 }

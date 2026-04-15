@@ -273,6 +273,14 @@ export default function Admin() {
             )}
             <button
               disabled={runningTask !== null}
+              onClick={() => executeAction("toggle_inspect", "/api/admin/set-inspect", { inspect_mode: !gameState.inspect_mode }, "Toggle Audience Inspect")}
+              className={`px-4 py-2 border-2 text-xs tracking-widest uppercase transition-colors disabled:opacity-50 ${gameState.inspect_mode ? "border-red-500 text-red-500 bg-red-500/10" : "border-[#333] hover:border-yellow-500 hover:text-yellow-500"}`}
+              title="Lock devtools for the audience"
+            >
+              Audience Inspect: {gameState.inspect_mode ? "BLOCKED" : "ALLOWED"}
+            </button>
+            <button
+              disabled={runningTask !== null}
               onClick={() => setIsAuthenticated(false)}
               className="px-4 py-2 border-2 border-[#333] hover:border-red-500 hover:text-red-500 text-xs tracking-widest uppercase transition-colors disabled:opacity-50"
             >

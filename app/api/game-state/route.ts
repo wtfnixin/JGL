@@ -6,14 +6,7 @@ export async function GET() {
   try {
     const { data, error } = await supabaseAdmin
       .from("game_state")
-      .select(
-        `
-        phase,
-        current_team_id,
-        updated_at,
-        teams ( name, code )
-      `,
-      )
+      .select("*, teams ( name, code )")
       .eq("id", 1)
       .single();
 
@@ -23,6 +16,7 @@ export async function GET() {
       phase: data.phase,
       current_team_id: data.current_team_id,
       updated_at: data.updated_at,
+      inspect_mode: !!data.inspect_mode,
       current_team_name: data.teams ? (data.teams as any).name : null,
       current_team_code: data.teams ? (data.teams as any).code : null,
     });
