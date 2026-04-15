@@ -4,19 +4,28 @@ import { useRouter } from "next/navigation";
 
 export default function Login() {
   const [code, setCode] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
   const handleLogin = async () => {
-    const res = await fetch("/api/auth/team-login", {
-      method: "POST",
-      body: JSON.stringify({ code }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      localStorage.setItem("jgl_team", JSON.stringify(data));
-      router.push(`/team/${data.code}`);
-    } else {
-      alert("Login failed. Please check your team code.");
+    if (isLoading || !code.trim()) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/auth/team-login", {
+        method: "POST",
+        body: JSON.stringify({ code: code.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        sessionStorage.setItem("jgl_team", JSON.stringify(data));
+        router.push(`/team/${data.code}`);
+      } else {
+        alert("Login failed. Please check your team code.");
+        setIsLoading(false);
+      }
+    } catch (e) {
+      alert("Network error occurred.");
+      setIsLoading(false);
     }
   };
 
@@ -32,6 +41,12 @@ export default function Login() {
           </p>
         </div>
 
+        {typeof window !== "undefined" && new URLSearchParams(window.location.search).get("kicked") === "1" && (
+          <div className="bg-red-950/50 border border-red-900 text-red-400 p-4 rounded-xl text-sm font-medium text-center">
+            You were securely logged out because your team signed in on another active device or browser tab.
+          </div>
+        )}
+
         <div className="space-y-4">
           <input
             value={code}
@@ -42,9 +57,10 @@ export default function Login() {
           />
           <button
             onClick={handleLogin}
-            className="w-full bg-blue-600 hover:bg-blue-500 transition-colors text-white font-bold py-4 px-4 rounded-xl shadow-lg mt-4"
+            disabled={isLoading}
+            className="w-full bg-blue-600 hover:bg-blue-500 transition-colors text-white font-bold py-4 px-4 rounded-xl shadow-lg mt-4 disabled:opacity-50 disabled:cursor-wait"
           >
-            Enter Session
+            {isLoading ? "Authenticating..." : "Enter Session"}
           </button>
         </div>
       </div>

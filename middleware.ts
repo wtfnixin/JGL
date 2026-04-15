@@ -11,10 +11,15 @@ export function middleware(request: NextRequest) {
 
   const now = Date.now();
   const windowTime = 60000; // 60 seconds
-  const maxRequests = 60; // Max requests per window
+  const maxRequests = 200; // Increased limit to accommodate multiple users on same IP (e.g., event WiFi)
 
   // Complete bypass for Admin routes
   if (request.nextUrl.pathname.startsWith("/api/admin")) {
+    return NextResponse.next();
+  }
+  
+  // Bypass rate limiting for polling (GET requests)
+  if (request.method === "GET") {
     return NextResponse.next();
   }
 

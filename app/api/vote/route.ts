@@ -66,14 +66,12 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (voteError) {
-      if (voteError.code === "23505") {
-        return Response.json({ ok: true, duplicate: true });
+      if (voteError.code === "23505") { // Unique violation
+        // Usually happens if a team votes twice for the SAME performing team (or if schema constraint is wrong)
+        return Response.json({ error: "You have already voted for this team" }, { status: 400 });
       }
-      throw voteError;
-    }
-
-    if (!voteData) {
-      return Response.json({ ok: true, duplicate: true });
+      console.error("Vote Insert Error:", voteError);
+      return Response.json({ error: "Database error inserting vote" }, { status: 500 });
     }
 
     const { data: votesObj, error: fetchVotesError } = await supabaseAdmin
@@ -92,9 +90,10 @@ export async function POST(req: Request) {
 
     if (updateScoreError) throw updateScoreError;
 
-    return Response.json({ ok: true, duplicate: false });
+    return Response.json({ ok: true });
   } catch (error) {
     console.error("[vote] error:", error);
     return Response.json({ error: "Internal server error" }, { status: 500 });
+
   }
 }

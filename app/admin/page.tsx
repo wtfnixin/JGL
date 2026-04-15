@@ -293,7 +293,36 @@ export default function Admin() {
                 ></span>
                 Phase Controls
               </h2>
+
+              <div className="mb-6 p-4 border border-[#333] bg-[#111]">
+                <div className="text-[10px] text-[#666] tracking-[0.2em] uppercase mb-1">Currently On Stage</div>
+                {gameState.current_team_id ? (
+                  <div className="text-[#00FF41] font-bold tracking-wider uppercase">
+                    {teams.find((t) => t.id === gameState.current_team_id)?.name || "UNKNOWN TEAM"}
+                  </div>
+                ) : (
+                  <div className="text-yellow-500 font-bold tracking-wider uppercase animate-pulse">
+                    NO ONE HERE - WAITING FOR ADMIN
+                  </div>
+                )}
+              </div>
+
               <div className="flex flex-col space-y-4">
+                <PhaseButton
+                  label="[XX] Stop / Clear Stage"
+                  alert
+                  taskId="clear_stage"
+                  runningTask={runningTask}
+                  active={!gameState.current_team_id}
+                  onClick={() =>
+                    executeAction(
+                      "clear_stage",
+                      "/api/admin/clear-stage",
+                      {},
+                      "Clear Stage",
+                    )
+                  }
+                />
                 <PhaseButton
                   label="[00] Waiting / Setup"
                   taskId="phase_waiting"
