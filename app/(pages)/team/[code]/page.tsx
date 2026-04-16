@@ -125,10 +125,11 @@ export default function Team({ params }: { params: { code: string } }) {
     };
   }, []);
 
-  const handleVote = async () => {
+  const handleVote = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (isSubmitting) return;
 
-    const points = typeof votePoints === "number" ? votePoints : parseInt(votePoints);
+    const points = typeof votePoints === "number" ? votePoints : parseInt(votePoints as string);
     if (isNaN(points) || points < 1 || points > 10) {
       setVoteError("Invalid points. Must be between 1 and 10.");
       return;
@@ -178,6 +179,7 @@ export default function Team({ params }: { params: { code: string } }) {
         {/* Action / Voting Block */}
         <AnimatePresence mode="popLayout">
           {gameState?.phase === "voting_open" &&
+            !!gameState?.current_team_id &&
             gameState?.current_team_id !== teamInfo?.team_id && (
               votedTeamId === gameState.current_team_id ? (
                 <motion.div
@@ -212,7 +214,7 @@ export default function Team({ params }: { params: { code: string } }) {
                     </strong>
                   </p>
 
-                  <div className="flex flex-col md:flex-row items-center justify-center gap-4 pt-4">
+                  <form onSubmit={handleVote} className="flex flex-col md:flex-row items-center justify-center gap-4 pt-4">
                     <input
                       type="number"
                       min={1}
@@ -224,15 +226,15 @@ export default function Team({ params }: { params: { code: string } }) {
                       className="w-full md:w-48 bg-transparent border-b-2 border-gray-700 focus:border-blue-500 rounded-none p-4 text-center text-3xl font-black text-white placeholder-gray-600 focus:outline-none focus:ring-0 transition-all disabled:opacity-50"
                     />
                     <motion.button
+                      type="submit"
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={handleVote}
                       disabled={isSubmitting}
                       className="w-full md:w-auto px-12 py-5 bg-blue-500 hover:bg-blue-400 text-white font-black text-xl rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.5)] transition-colors disabled:opacity-50 disabled:cursor-wait"
                     >
                       {isSubmitting ? "CASTING..." : "CAST VOTE"}
                     </motion.button>
-                  </div>
+                  </form>
                   
                   {voteError && (
                     <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-red-400 font-bold bg-red-950/50 p-3 rounded-lg border border-red-900/50">

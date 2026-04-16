@@ -13,6 +13,21 @@ export async function POST(req: Request) {
       return Response.json({ error: "Invalid phase" }, { status: 400 });
     }
 
+    if (body.phase === "voting_open") {
+      const { data: gs } = await supabaseAdmin
+        .from("game_state")
+        .select("current_team_id")
+        .eq("id", 1)
+        .single();
+        
+      if (!gs?.current_team_id) {
+        return Response.json(
+          { error: "Cannot open voting: No team is currently on stage." },
+          { status: 400 },
+        );
+      }
+    }
+
     const { error: updateError } = await supabaseAdmin
       .from("game_state")
       .update({

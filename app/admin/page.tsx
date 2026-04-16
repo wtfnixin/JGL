@@ -24,6 +24,7 @@ export default function Admin() {
   >([]);
 
   const [newTeamName, setNewTeamName] = useState("");
+  const [currentVotes, setCurrentVotes] = useState<any[]>([]);
 
   // Initialization and Real-Time Sync
   useEffect(() => {
@@ -100,6 +101,33 @@ export default function Admin() {
       supabase.removeChannel(channel);
     };
   }, [isAuthenticated]);
+
+  // Live Votes Polling (bypasses RLS by using the admin API)
+  useEffect(() => {
+    if (!isAuthenticated || !gameState.current_team_id) {
+      setCurrentVotes([]);
+      return;
+    }
+
+    const fetchVotes = async () => {
+      try {
+        const res = await fetch(`/api/admin/live-votes?team_id=${gameState.current_team_id}`, {
+          headers: { "x-admin-password": pass },
+        });
+        if (res.ok) {
+          const { votes } = await res.json();
+          if (votes) setCurrentVotes(votes);
+        }
+      } catch (err) {
+        // silently ignore fetch errors to prevent console spam
+      }
+    };
+
+    fetchVotes();
+    const interval = setInterval(fetchVotes, 2500);
+
+    return () => clearInterval(interval);
+  }, [gameState.current_team_id, isAuthenticated, pass]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -350,6 +378,7 @@ export default function Admin() {
                   taskId="phase_open"
                   runningTask={runningTask}
                   active={gameState.phase === "voting_open"}
+                  disabled={!gameState.current_team_id}
                   onClick={() =>
                     executeAction(
                       "phase_open",
@@ -554,26 +583,63 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* RIGHT COLUMN: Projector Launch */}
-          <div className="lg:col-span-4 h-full border-2 border-[#333] p-6 flex flex-col justify-center items-center text-center">
-            <h2 className="text-[#00FF41] text-xs font-bold mb-6 tracking-[0.2em] uppercase">
-              Big Screen Access
-            </h2>
-            <p className="text-[#666] text-xs uppercase tracking-widest mb-12">
-              Launch the dedicated, full-screen leaderboard interface on a
-              projector or external display.
-            </p>
-            <a
-              href="/results"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="border-2 border-[#00FF41] text-[#00FF41] hover:bg-[#00FF41] hover:text-black transition-colors px-8 py-6 uppercase font-bold tracking-widest flex items-center gap-4 group w-full justify-center"
-            >
-              <span>Launch Projector</span>
-              <span className="opacity-0 group-hover:opacity-100 transition-opacity">
-                ↗
-              </span>
-            </a>
+          {/* RIGHT COLUMN: Projector Launch & Live Votes */}
+          <div className="lg:col-span-4 flex flex-col gap-8 h-full max-h-[80vh]">
+            <div className="border-2 border-[#333] p-6 text-center shrink-0">
+              <h2 className="text-[#00FF41] text-xs font-bold mb-4 tracking-[0.2em] uppercase">
+                Big Screen Access
+              </h2>
+              <a
+                href="/results"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="border-2 border-[#00FF41] text-[#00FF41] hover:bg-[#00FF41] hover:text-black transition-colors px-4 py-4 uppercase font-bold tracking-widest flex items-center gap-2 group w-full justify-center text-sm"
+              >
+                <span>Launch Projector</span>
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+                  ↗
+                </span>
+              </a>
+            </div>
+
+            <div className="border-2 border-[#333] p-6 flex-1 flex flex-col min-h-0">
+              <h2 className="text-[#00FF41] text-xs font-bold mb-4 tracking-[0.2em] uppercase flex items-center justify-between">
+                <span>Live Votes</span>
+                {gameState.current_team_id && (
+                  <span className="text-[#ededed] text-[10px] bg-[#333] px-2 py-1 rounded">
+                    {teams.find((t) => t.id === gameState.current_team_id)?.name}
+                  </span>
+                )}
+              </h2>
+              <div className="flex-1 overflow-y-auto space-y-2 pr-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                {!gameState.current_team_id && (
+                  <div className="text-[#444] text-xs text-center p-4 border border-[#333]">
+                    NO TEAM ON STAGE
+                  </div>
+                )}
+                {gameState.current_team_id && currentVotes.length === 0 && (
+                  <div className="text-[#444] text-xs text-center p-4 border border-[#333]">
+                    WAITING FOR VOTES...
+                  </div>
+                )}
+                {currentVotes.map((vote) => {
+                  const voter = teams.find((t) => t.id === vote.voting_team_id);
+                  return (
+                    <div
+                      key={vote.id}
+                      className="border border-[#333] p-3 flex justify-between items-center bg-[#0a0a0a]"
+                    >
+                      <span className="text-[#ededed] font-bold uppercase text-xs truncate mr-2">
+                        {voter?.name || "Unknown"}
+                      </span>
+                      <span className="text-[#00FF41] font-bold text-sm shrink-0">
+                        {vote.points_given} PTS
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           {/* BOTTOM ROW: Action Log Terminal */}
@@ -629,6 +695,7 @@ function PhaseButton({
   onClick,
   active = false,
   alert = false,
+  disabled = false,
 }: any) {
   const isRunning = runningTask === taskId;
   let baseColor = "border-[#333] text-[#ededed] hover:bg-[#222]";
@@ -648,7 +715,7 @@ function PhaseButton({
 
   return (
     <button
-      disabled={runningTask !== null}
+      disabled={runningTask !== null || disabled}
       onClick={onClick}
       className={`border-2 p-4 text-left transition-all uppercase tracking-widest text-sm font-bold flex justify-between items-center group disabled:opacity-40 disabled:cursor-not-allowed ${baseColor}`}
     >
