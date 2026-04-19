@@ -48,13 +48,6 @@ Create a new project on [Supabase](https://supabase.com). Go to the SQL Editor a
 ### 2. Environment Configuration
 Create a `.env.local` file in the root directory formatting your project URL and keys:
 
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://[YOUR_PROJECT_ID].supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJI...
-
-# Never commit this. Ensure it is very strong.
-ADMIN_PASSWORD=your_super_secret_password_here
-```
 
 ### 3. Local Installation
 
